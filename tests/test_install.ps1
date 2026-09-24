@@ -28,7 +28,10 @@ try {
     $env:PROXLANE_URL = "http://127.0.0.1:1"
     $env:PROXLANE_API_KEY = "a-gateway-key-for-windows-tests"
 
-    $out = & "$Repo\install.ps1" 2>&1 | Out-String
+    # `*>&1`, not `2>&1`. The installer reports with Write-Host, which writes to the
+    # information stream; `2>&1` captures only errors, so the test saw python's stderr and none
+    # of the installer's own messages.
+    $out = & "$Repo\install.ps1" *>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { Fail "install exited $LASTEXITCODE`n$out" }
 
     $SkillDir = Join-Path $TestHome ".claude/skills/seo-proxlane"
