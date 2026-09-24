@@ -421,6 +421,25 @@ def _error_body(body: bytes) -> dict[str, Any] | None:
     return err if isinstance(err, dict) else None
 
 
+def page_text(reply: Reply) -> str:
+    """The page as text, in the charset the site declared.
+
+    UTF-8 when it declares none or one Python does not know. Decoding everything as UTF-8 turned
+    every accented character on a Latin-1 or Windows-1252 site into U+FFFD, which is the content
+    an SEO audit is reading. `--output` writes the raw bytes and never goes through this.
+    """
+    content_type = {k.lower(): v for k, v in reply.headers.items()}.get("content-type", "")
+    charset = "utf-8"
+    for part in content_type.split(";")[1:]:
+        name, _, value = part.strip().partition("=")
+        if name.strip().lower() == "charset" and value.strip():
+            charset = value.strip().strip('"').strip("'")
+    try:
+        return reply.body.decode(charset, errors="replace")
+    except LookupError:
+        return reply.body.decode("utf-8", errors="replace")
+
+
 def describe(verdict: dict[str, Any]) -> str:
     """One line a person, or an agent, can act on."""
     cls = verdict.get("outcome_class", "?")
@@ -474,6 +493,17 @@ def cmd_check(cfg: Config, timeout_s: float) -> int:
         return EXIT_RETRY
     if auth.status == 401:
         print(f"proxlane: gateway {version} is up, but it rejected the key.", file=sys.stderr)
+        return EXIT_CLIENT
+    # ONLY the measured answer proves the key: 400 with BAD_REQUEST for the missing url. Anything
+    # else (a 404, a 500, a proxy's own page) says nothing about the key, and "accepted" on
+    # anything-but-401 would have reported success for a server that never checked it.
+    err = _error_body(auth.body) or {}
+    if auth.status != 400 or err.get("code") != "BAD_REQUEST":
+        print(
+            f"proxlane: gateway {version} answered /v1 unexpectedly (HTTP {auth.status}), so the key "
+            "could not be verified. Is this the gateway's own port, with nothing in between?",
+            file=sys.stderr,
+        )
         return EXIT_CLIENT
 
     providers, usable = info.get("providers"), info.get("usable")
@@ -615,6 +645,15 @@ def cmd_fetch(cfg: Config, args: argparse.Namespace, timeout_s: float) -> int:
     if not args.simulate:
         reserve_fetch(_usage_limit())
 
+    # --force clears the old file BEFORE the request, after the brake has let it proceed. Removing
+    # it only on a non-ok verdict left it in place whenever the gateway could not be reached at
+    # all, which is the same stale-content-beside-a-failed-fetch the removal exists to prevent.
+    if output is not None and output.exists():
+        output.unlink()
+        verdict_removed = str(output)
+    else:
+        verdict_removed = None
+
     try:
         reply = _send(req, timeout_s)
     except urllib.error.URLError as exc:
@@ -631,23 +670,19 @@ def cmd_fetch(cfg: Config, args: argparse.Namespace, timeout_s: float) -> int:
     code = EXIT_FOR_CLASS.get(verdict["outcome_class"], EXIT_CLIENT)
     page = reply.body if verdict["outcome_class"] == "ok" else b""
 
-    if output is not None:
-        if page:
-            _write_atomic(output, page)
-            verdict["output"] = str(output)
-        elif output.exists():
-            # Only reachable with --force. A file left from an earlier run, beside a verdict that
-            # says this fetch failed, is exactly how stale content gets analysed as current.
-            output.unlink()
-            verdict["output_removed"] = str(output)
+    if output is not None and page:
+        _write_atomic(output, page)
+        verdict["output"] = str(output)
+    elif verdict_removed is not None:
+        verdict["output_removed"] = verdict_removed
     verdict["bytes"] = len(page)
 
     if args.json:
         if page and output is None:
-            verdict["body"] = page.decode("utf-8", errors="replace")
+            verdict["body"] = page_text(reply)
         print(json.dumps(verdict, indent=2))
     elif page and output is None:
-        sys.stdout.write(page.decode("utf-8", errors="replace"))
+        sys.stdout.write(page_text(reply))
         sys.stdout.flush()
     print(describe(verdict), file=sys.stderr)
     return code

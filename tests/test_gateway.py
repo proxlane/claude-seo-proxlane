@@ -149,3 +149,28 @@ def test_the_gateway_refuses_a_private_target_for_us(tmp_path):
     r = run("fetch", "http://169.254.169.254/latest/meta-data/", "--json", tmp_home=tmp_path)
     assert r.returncode == 2, r.stderr
     assert json.loads(r.stdout)["outcome"] == "TARGET_FORBIDDEN"
+
+
+def test_force_clears_the_old_file_even_when_the_gateway_is_unreachable(tmp_path):
+    # Removing the old file only on a non-ok verdict left it in place when the request never
+    # got an answer at all: stale content beside a failed fetch, the thing --force must prevent.
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "page.html").write_text("yesterday's content")
+    home = tmp_path / "home"
+    home.mkdir()
+    env = {
+        **os.environ,
+        "PROXLANE_URL": "http://127.0.0.1:9",
+        "PROXLANE_API_KEY": SANDBOX_KEY,
+        "HOME": str(home),
+    }
+    r = subprocess.run(
+        [sys.executable, str(SCRIPT), "fetch", "https://example.com", "--output", "page.html", "--force"],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=work,
+    )
+    assert r.returncode == 5, r.stderr
+    assert not (work / "page.html").exists()

@@ -419,3 +419,73 @@ def test_plain_http_to_another_machine_warns(capsys):
     pf._warn_if_plain_http("http://localhost:8787")
     pf._warn_if_plain_http("https://gateway.example")
     assert capsys.readouterr().err == ""
+
+
+class TestPageText:
+    def reply(self, body, content_type):
+        return pf.Reply(200, {"Content-Type": content_type} if content_type else {}, body)
+
+    def test_uses_the_declared_charset(self):
+        # "Café" in Latin-1. Decoded as UTF-8 it became "Caf\ufffd", which is the text an audit reads.
+        assert pf.page_text(self.reply("Café".encode("latin-1"), "text/html; charset=ISO-8859-1")) == "Café"
+
+    def test_quoted_charset(self):
+        assert (
+            pf.page_text(self.reply("Café".encode("cp1252"), 'text/html; charset="windows-1252"')) == "Café"
+        )
+
+    def test_defaults_to_utf8(self):
+        assert pf.page_text(self.reply("Café".encode(), "text/html")) == "Café"
+        assert pf.page_text(self.reply("Café".encode(), "")) == "Café"
+
+    def test_an_unknown_charset_falls_back_to_utf8(self):
+        assert pf.page_text(self.reply("Café".encode(), "text/html; charset=not-a-charset")) == "Café"
+
+
+class TestCheckProbe:
+    """`check` must only say "key accepted" on the answer that proves it."""
+
+    def serve(self, v1_status, v1_body):
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):  # noqa: N802
+                if self.path == "/health":
+                    body, status = b'{"version":"9.9.9","providers":1,"usable":1}', 200
+                else:
+                    body, status = v1_body, v1_status
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server
+
+    def run_check(self, v1_status, v1_body, capsys):
+        server = self.serve(v1_status, v1_body)
+        try:
+            code = pf.cmd_check(pf.Config(url=f"http://127.0.0.1:{server.server_port}", api_key=KEY), 5)
+        finally:
+            server.shutdown()
+        return code, capsys.readouterr()
+
+    def test_the_measured_400_means_accepted(self, capsys):
+        body = json.dumps({"error": {"code": "BAD_REQUEST", "class": "client", "message": "url is required"}})
+        code, out = self.run_check(400, body.encode(), capsys)
+        assert code == 0 and "key accepted" in out.out
+
+    def test_401_means_rejected(self, capsys):
+        code, out = self.run_check(401, b'{"error":{"code":"UNAUTHORIZED"}}', capsys)
+        assert code == 2 and "rejected the key" in out.err
+
+    @pytest.mark.parametrize("status,body", [(404, b"not found"), (500, b"{}"), (200, b"<html>")])
+    def test_anything_else_is_not_verified(self, status, body, capsys):
+        # Before: anything but 401 printed "key accepted", including a 404 from a proxy that
+        # never looked at the key.
+        code, out = self.run_check(status, body, capsys)
+        assert code == 2
+        assert "could not be verified" in out.err
+        assert "key accepted" not in out.out
