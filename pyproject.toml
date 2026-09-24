@@ -1,0 +1,22 @@
+# Not a package: the script installs as a loose file into ~/.claude/skills. This file holds
+# tool configuration only, which is why there is no [build-system].
+[project]
+name = "claude-seo-proxlane"
+version = "0.1.0"
+requires-python = ">=3.9"
+
+[tool.ruff]
+line-length = 110
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+# S603/S607: subprocess with a fixed argv (icacls, the script under test) is the point.
+# S101: pytest's assert.
+ignore = ["S603", "S607"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "S310"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

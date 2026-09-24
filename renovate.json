@@ -1,0 +1,40 @@
+{
+	"$schema": "https://docs.renovatebot.com/renovate-schema.json",
+	"extends": [
+		"config:recommended",
+		":semanticCommits",
+		"group:allNonMajor"
+	],
+	"schedule": [
+		"before 6am on monday"
+	],
+	"commitMessageAction": "bump",
+	"commitMessageTopic": "{{depName}}",
+	"packageRules": [
+		{
+			"description": "Patch and minor updates automerge once CI is green. CI runs every test against a real gateway image in sandbox mode.",
+			"matchUpdateTypes": [
+				"patch",
+				"minor"
+			],
+			"automerge": true
+		},
+		{
+			"description": "GitHub Actions are pinned to a commit SHA and never automerged, the same rule as proxlane/proxlane.",
+			"matchManagers": [
+				"github-actions"
+			],
+			"automerge": false,
+			"pinDigests": true
+		},
+		{
+			"description": "pytest 9 requires Python 3.10. This repository tests on 3.9 because that is macOS's system python3, so pytest stays on 8.x until 3.9 leaves the CI matrix.",
+			"matchPackageNames": [
+				"pytest"
+			],
+			"allowedVersions": "<9"
+		}
+	],
+	"prConcurrentLimit": 2,
+	"prHourlyLimit": 2
+}

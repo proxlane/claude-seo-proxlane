@@ -1,0 +1,7 @@
+# Test and lint tools only. The script itself is standard library and installs nothing.
+# Pinned exactly so CI is reproducible and Renovate can see and bump them.
+
+# 8.4.x is the last line that supports Python 3.9, which this repository tests because it is
+# macOS's system python3. renovate.json holds it below 9 for the same reason.
+pytest==8.4.2
+ruff==0.16.8

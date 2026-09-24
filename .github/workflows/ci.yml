@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # The real round trip: a published gateway image in sandbox mode, no provider keys, nothing
+  # spent. 3.9 because that is macOS's system python3 and the installer's stated floor; 3.13 as
+  # the current release.
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.13"]
+    services:
+      gateway:
+        image: ghcr.io/proxlane/gateway:0.19.2
+        ports: ["8787:8787"]
+        env:
+          # Throwaway values for a container that lives only on this runner's localhost. Safe
+          # to publish for that reason, and never a pattern to copy: a real gateway needs a key
+          # nobody else has seen.
+          PROXLANE_API_KEY: ci-live-key-never-used-0000000000000000
+          PROXLANE_SANDBOX_KEY: ci-sandbox-key-000000000000000000000000
+    env:
+      PROXLANE_TEST_URL: http://localhost:8787
+      PROXLANE_TEST_SANDBOX_KEY: ci-sandbox-key-000000000000000000000000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - name: wait for the gateway
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8787/health && exit 0
+            sleep 2
+          done
+          echo "gateway never became healthy"; exit 1
+      - run: python -m pytest -q
+      - name: installer, against a throwaway HOME
+        run: ./tests/test_install.sh
+
+  # No service containers on Windows runners, so the gateway tests skip here. What this covers
+  # is what only Windows can: the PowerShell installer, USERPROFILE as home, and the icacls ACL.
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+      - name: installer, against a throwaway USERPROFILE
+        shell: pwsh
+        run: ./tests/test_install.ps1
+
+  # The same scanner, version and checksum proxlane/proxlane pins. The CLI rather than the
+  # action, which wants a licence for organisation repositories.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - shell: bash
+        run: |
+          VERSION=8.30.1
+          SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 2 -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            || { echo "::error::could not download gitleaks ${VERSION}: a network or release problem, not a security one"; exit 1; }
+          echo "${SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c - \
+            || { echo "::error::gitleaks ${VERSION} downloaded but its checksum does not match the pin"; exit 1; }
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --redact --no-banner --exit-code 1
+          /tmp/gitleaks detect --source . --no-git --redact --no-banner --exit-code 1
