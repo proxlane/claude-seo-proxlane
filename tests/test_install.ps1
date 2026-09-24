@@ -36,7 +36,15 @@ try {
 
     $acl = (Get-Acl $Config).Access | ForEach-Object { $_.IdentityReference.Value }
     $others = $acl | Where-Object { $_ -notmatch [regex]::Escape($env:USERNAME) }
-    if ($others) { Fail "config is readable by others: $($acl -join ', ')" }
+    if ($others) {
+        Write-Host "--- installer output ---"
+        Write-Host $out
+        Write-Host "--- icacls ---"
+        & icacls $Config
+        Write-Host "--- whoami /user ---"
+        & whoami /user /fo csv /nh
+        Fail "config is readable by others: $($acl -join ', ')"
+    }
     Pass "restricts the config to the current user"
 
     if ($out -notmatch "check above failed") { Fail "an unreachable gateway was not reported`n$out" }
