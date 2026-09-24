@@ -84,6 +84,6 @@ if ($LASTEXITCODE -eq 0) {
     Write-Host "  python `"$SkillDir\proxlane_fetch.py`" check"
 }
 Write-Host ""
-Write-Host "In Claude Code:  /seo proxlane fetch https://example.com"
+Write-Host "In Claude Code:  /seo-proxlane fetch https://example.com"
 Write-Host "Uninstall:       .\uninstall.ps1"
 exit 0

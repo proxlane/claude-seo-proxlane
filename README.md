@@ -8,19 +8,17 @@ Maintained here, not by Claude SEO. Report problems in [this repository's issues
 
 ## Prerequisites
 
-- [Claude SEO](https://github.com/AgriciDaniel/claude-seo). Optional: the skill works on its own, and cooperates with Claude SEO's audit skills when both are installed
+- [Claude SEO](https://github.com/AgriciDaniel/claude-seo). Optional: the skill works on its own
 - Python 3.9+
 - A running Proxlane gateway and its key. One container, your own provider keys:
 
 ```bash
 export PROXLANE_API_KEY=$(openssl rand -hex 32)
 export SCRAPERAPI_KEY=...
-docker run -p 8787:8787 -e PROXLANE_API_KEY -e SCRAPERAPI_KEY ghcr.io/proxlane/gateway:0.19.2
+docker run -d --name proxlane -p 8787:8787 -e PROXLANE_API_KEY -e SCRAPERAPI_KEY ghcr.io/proxlane/gateway:0.19.2
 ```
 
-Keep that shell open: the installer below picks `PROXLANE_API_KEY` up from it instead of prompting.
-
-`-e NAME` with no value passes the variable through, so the key is not on `docker`'s command line.
+`-d` runs it in the background, so the same shell is free for the installer below, which picks `PROXLANE_API_KEY` up from it instead of prompting. `-e NAME` with no value passes the variable through, so the key is not on `docker`'s command line.
 
 The gateway's own [quickstart](https://proxlane.dev/docs/quickstart) covers the rest. To try this with no provider account, see [the sandbox](#trying-it-without-a-provider-account).
 
@@ -48,12 +46,16 @@ The key it asks for is the gateway's, the `PROXLANE_API_KEY` you started it with
 
 ## Commands
 
+The skill installs as `/seo-proxlane` in Claude Code. Claude also picks it up on its own when you mention a blocked page, a challenge page, or fetching through your gateway.
+
 | Command | Purpose | Cost |
 |---|---|---|
-| `/seo proxlane check` | Gateway reachable, key accepted | Free |
-| `/seo proxlane fetch <url>` | One page | One provider request, more on failover |
-| `/seo proxlane fetch <url> --render` | One page with JavaScript executed | Usually 5-25x a plain request |
-| `/seo proxlane fetch <url> --country de` | As if requested from Germany | Provider-dependent |
+| `/seo-proxlane check` | Gateway reachable, key accepted | Free |
+| `/seo-proxlane fetch <url>` | One page | One provider request, more on failover |
+| `/seo-proxlane fetch <url> --render` | One page with JavaScript executed | Usually 5-25x a plain request |
+| `/seo-proxlane fetch <url> --country de` | As if requested from Germany | Provider-dependent |
+
+It is not a subcommand of Claude SEO's `/seo`: that router lists its own extensions by name, and this is not one of them.
 
 Every fetch reports what it cost, including attempts that failed before one succeeded. The skill tells the agent to ask before the first paid fetch, before any batch of more than five, and before every `--render`, `--premium` or `--country`.
 
@@ -69,11 +71,15 @@ proxlane: TARGET_NOT_FOUND (target) via scraperapi, 1 attempt(s), cost 1.000000 
 
 A blocked page never reaches stdout, so nothing downstream analyses a challenge page as though it were the site. The exit code follows the outcome class: `0` ok, `3` the site said no, `4` blocked, `5` transient, `2` fix the request.
 
-## Integration with Claude SEO
+## Working alongside Claude SEO
 
-- **`/seo audit`**: pages a direct fetch could not get are re-fetched through the gateway, and pages blocked outright are reported as a finding, since a site that blocks scrapers may be blocking crawlers too
-- **`/seo technical`**: real status codes from the site are kept apart from blocks, so a blocked page is never reported as broken
-- **`/seo content`**, **`/seo schema`**: only pages that came back `ok` are analysed
+Claude SEO's own skills do not call this one. `/seo audit` fetches pages its own way and knows nothing about the gateway. What this adds is a second fetch, in the same session, for the pages Claude SEO could not get:
+
+- ask Claude to re-fetch the blocked pages through Proxlane, or run `/seo-proxlane fetch` on them
+- a page that comes back `blocked` is a finding in its own right: a site that blocks scrapers may be blocking crawlers too
+- a page that comes back `target` carries the site's real status code, while a `blocked` one does not and should never be reported as broken
+
+The skill's instructions tell Claude to treat those two differently, and to analyse only pages that came back `ok`.
 
 ## Trying it without a provider account
 
@@ -82,7 +88,7 @@ Start the gateway with a sandbox key as well:
 ```bash
 export PROXLANE_API_KEY=$(openssl rand -hex 32)
 export PROXLANE_SANDBOX_KEY=$(openssl rand -hex 32)
-docker run -p 8787:8787 -e PROXLANE_API_KEY -e PROXLANE_SANDBOX_KEY ghcr.io/proxlane/gateway:0.19.2
+docker run -d --name proxlane -p 8787:8787 -e PROXLANE_API_KEY -e PROXLANE_SANDBOX_KEY ghcr.io/proxlane/gateway:0.19.2
 ```
 
 Install with the **sandbox** key. It has to be named explicitly, because an exported `PROXLANE_API_KEY` would otherwise be picked up instead:
@@ -122,7 +128,7 @@ More in [docs/PROXLANE-SETUP.md](docs/PROXLANE-SETUP.md).
 .\uninstall.ps1     # Windows
 ```
 
-Removes the skill and the config file. Claude SEO and the gateway are untouched.
+Removes the skill, the config file and the daily usage count. Claude SEO and the gateway are untouched.
 
 ## Licence
 

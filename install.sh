@@ -97,7 +97,7 @@ main() {
         echo "  python3 ${SKILL_DIR}/proxlane_fetch.py check"
     fi
     echo ""
-    echo "In Claude Code:  /seo proxlane fetch https://example.com"
+    echo "In Claude Code:  /seo-proxlane fetch https://example.com"
     echo "Uninstall:       ./uninstall.sh"
 }
 

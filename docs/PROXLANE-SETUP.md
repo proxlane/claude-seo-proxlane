@@ -7,6 +7,7 @@
 | The skill | `~/.claude/skills/seo-proxlane/SKILL.md` |
 | The script | `~/.claude/skills/seo-proxlane/proxlane_fetch.py` |
 | Gateway URL and key | `~/.config/claude-seo/proxlane.json` |
+| Today's paid fetch count | `~/.config/claude-seo/proxlane-usage.json` |
 
 `PROXLANE_URL` and `PROXLANE_API_KEY` in the environment override the file, which is the
 right choice on a shared machine: nothing is written to disk at all.
