@@ -24,14 +24,14 @@ jobs:
         image: ghcr.io/proxlane/gateway:0.19.2
         ports: ["8787:8787"]
         env:
-          # Throwaway values for a container that lives only on this runner's localhost. Safe
-          # to publish for that reason, and never a pattern to copy: a real gateway needs a key
-          # nobody else has seen.
-          PROXLANE_API_KEY: ci-live-key-never-used-0000000000000000
-          PROXLANE_SANDBOX_KEY: ci-sandbox-key-000000000000000000000000
+          # Per run, never a literal. The gateway refuses to start with a live key that has been
+          # published, and a literal in a public workflow is published; the old fixed value is on
+          # its refusal list. Unique per run and attempt, and it lives only on this runner.
+          PROXLANE_API_KEY: ci-live-${{ github.run_id }}-${{ github.run_attempt }}-throwaway
+          PROXLANE_SANDBOX_KEY: ci-sandbox-${{ github.run_id }}-${{ github.run_attempt }}-throwaway
     env:
       PROXLANE_TEST_URL: http://localhost:8787
-      PROXLANE_TEST_SANDBOX_KEY: ci-sandbox-key-000000000000000000000000
+      PROXLANE_TEST_SANDBOX_KEY: ci-sandbox-${{ github.run_id }}-${{ github.run_attempt }}-throwaway
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
