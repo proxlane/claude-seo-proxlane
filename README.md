@@ -96,7 +96,7 @@ Then any fetch can take `--simulate <OUTCOME>`, for example `--simulate SOFT_BLO
 ## Security
 
 - **The key only ever goes to the gateway it was stored with.** The URL and key are read as a pair, from the environment or from the file, never one from each, so setting `PROXLANE_URL` alone cannot send the stored key elsewhere
-- **Stored readable by you only.** `~/.config/claude-seo/proxlane.json` is mode `0600` on macOS and Linux, written atomically. On Windows it is restricted to your account with `icacls`, as a best effort, since NTFS ignores mode bits
+- **Stored readable by you only.** `~/.config/claude-seo/proxlane.json` is mode `0600` on macOS and Linux, written atomically. On Windows `icacls` removes every inherited permission and grants your account, leaving the owner, SYSTEM and Administrators, which is what Windows itself gives a private file. Best effort, since NTFS ignores mode bits, and tested in CI from a directory that starts out readable by every user
 - **Never on a command line**, including during install, and never in a URL: it goes in an `Authorization` header
 - **Only to the gateway.** Redirects are refused, since a gateway never redirects, and proxies from the environment are ignored, so an `http_proxy` setting never sees the key
 - **Pages cannot write where they like.** `--output` writes only `.html`, `.htm`, `.xml` or `.txt` files inside the working directory, never a dotfile, an agent instruction file or a build manifest, and will not replace a file without `--force`

@@ -11,6 +11,15 @@ function Pass($msg) { Write-Host "ok   $msg" }
 
 $TestHome = Join-Path ([System.IO.Path]::GetTempPath()) ("px-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path (Join-Path $TestHome ".claude/skills/seo") -Force | Out-Null
+
+# Start from a config directory that LEAKS: every local user may read what is created in it.
+# A temp directory under the runner's profile is already private, so without this the ACL
+# assertion below would pass whether or not the installer restricted anything. It did pass that
+# way in an earlier version of this test, which proved nothing.
+$ConfigDir = Join-Path $TestHome ".config/claude-seo"
+New-Item -ItemType Directory -Path $ConfigDir -Force | Out-Null
+& icacls $ConfigDir /grant "*S-1-5-32-545:(OI)(CI)R" | Out-Null   # BUILTIN\Users
+& icacls $ConfigDir /grant "*S-1-1-0:(OI)(CI)R" | Out-Null        # Everyone
 $RealProfile = $env:USERPROFILE
 try {
     # Both installers resolve home from USERPROFILE, which is also what Python's Path.home()
@@ -34,18 +43,26 @@ try {
     if ($doc.url -ne "http://127.0.0.1:1" -or $doc.api_key -ne "a-gateway-key-for-windows-tests") { Fail "config contents: $($doc | ConvertTo-Json)" }
     Pass "records the url and key"
 
-    $acl = (Get-Acl $Config).Access | ForEach-Object { $_.IdentityReference.Value }
-    $others = $acl | Where-Object { $_ -notmatch [regex]::Escape($env:USERNAME) }
-    if ($others) {
+    # The Windows equivalent of 0600 is not "one entry". It is: no principal beyond the owner and
+    # the machine's own administrators. That is the set Python itself applies for
+    # os.mkdir(mode=0o700) on Windows (OWNER RIGHTS, SYSTEM, Administrators), in the same way
+    # root can read a 0600 file on Linux. What must be gone are the entries that let OTHER
+    # users read it, which this test planted on the directory above.
+    $allowed = @("S-1-3-4", "S-1-5-18", "S-1-5-32-544")    # OWNER RIGHTS, SYSTEM, Administrators
+    $me = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
+    $sids = (Get-Acl $Config).Access | ForEach-Object {
+        $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+    }
+    $others = $sids | Where-Object { $_ -ne $me -and $allowed -notcontains $_ }
+    if ($others -or ($sids -notcontains $me)) {
         Write-Host "--- installer output ---"
         Write-Host $out
         Write-Host "--- icacls ---"
         & icacls $Config
-        Write-Host "--- whoami /user ---"
-        & whoami /user /fo csv /nh
-        Fail "config is readable by others: $($acl -join ', ')"
+        Fail "config grants access beyond the owner and administrators: $($sids -join ', ')"
     }
-    Pass "restricts the config to the current user"
+    if ($sids -contains "S-1-5-32-545" -or $sids -contains "S-1-1-0") { Fail "Users or Everyone can still read the config" }
+    Pass "removes the read access other users would have inherited"
 
     if ($out -notmatch "check above failed") { Fail "an unreachable gateway was not reported`n$out" }
     Pass "installs before the gateway exists, and says the check failed"
